@@ -15,6 +15,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <geometry_msgs/PointStamped.h>
+#include <monitoring_msgs/MonitorFeedback.h>
 #include <monitoring_msgs/MonitorFeedbackArray.h>
 #include <std_msgs/Int32.h>
 
@@ -23,6 +24,7 @@
 #include <geometry_msgs/TransformStamped.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2/transform_datatypes.h>
+#include <planner_msgs/LocalPlannerObjectDetection.h>
 
 class RobotFirstOrderState
 {
@@ -131,8 +133,7 @@ private:
 	// Publish event stream
 	monitoring_msgs::MonitorFeedback event_detected_object;
 	ros::Publisher pub_event_detected_object;
-	ros::Publisher pub_event_obstacle_lane_id;
-
+	ros::Publisher pub_local_planner_object_detection; 			///< Publish planner object detection
 	// Autoware lane
 public:
 	ObstacleMonitor(std::shared_ptr<ros::NodeHandle> nh): nh(nh), ego_state_subscriber(new RobotFirstOrderStateSubscriber(nh)) {}
@@ -161,14 +162,19 @@ public:
 			ROS_DEBUG_STREAM("Closest object distance " << distance);
 			if (distance < MAX_LOOKAHEAD_DISTANCE)
 			{
+				auto event_time = ros::Time::now();
 				monitoring_msgs::MonitorFeedback event;
-				event.eval = 1;
-				event.severity = monitoring_msgs::MonitorFeedback::SEVERITY_WARNING;
-				// Using lateral distance
-				event.signal_id = "LANE_OBJECT_DETECTED";
-				event.val = abs(2.0);
-				event.header.stamp = ros::Time::now();
-				pub_event_detected_object.publish(event);
+				// Publish local planner object detection
+				planner_msgs::LocalPlannerObjectDetection localplanner_msg;
+				localplanner_msg.avoidance_start_index = closest_waypoint_id;
+				localplanner_msg.avoidance_end_index   = closest_waypoint_id + 10;
+				localplanner_msg.header.stamp = event_time;
+				localplanner_msg.event.signal_id = "LANE_OBJECT_DETECTED";
+				localplanner_msg.event.header.stamp = time;
+				localplanner_msg.event.val = abs(2.0);
+				localplanner_msg.event.severity = monitoring_msgs::MonitorFeedback::SEVERITY_WARNING;
+				localplanner_msg.event.eval = 1;
+				pub_local_planner_object_detection.publish(localplanner_msg);
 			}
 		}
 
@@ -181,8 +187,8 @@ public:
 		sub_closest_waypoint_id = nh->subscribe("/closest_waypoint", 10, &ObstacleMonitor::cbClosestLaneId, this);
 		sub_base_waypoints = nh->subscribe("/base_waypoints", 10, &ObstacleMonitor::cbBaseWaypoints, this);
 		// Event stream
-		pub_event_detected_object = nh->advertise<monitoring_msgs::MonitorFeedback>("monitor/events/detected_object", 1000);
-		pub_event_obstacle_lane_id = nh->advertise<std_msgs::Int32>("/monitor/events/obstacle_lane_id", 1000);
+		pub_local_planner_object_detection =
+				nh->advertise<planner_msgs::LocalPlannerObjectDetection>("/monitor/events/local_planner/object_detection", 1000);
 	}
 };
 
@@ -192,6 +198,7 @@ int main(int argc, char ** argv)
 	std::shared_ptr<ros::NodeHandle> nh(new ros::NodeHandle);
 	ObstacleMonitor monitor(nh);
 	monitor.init();
+	ROS_INFO("Node initialized: object detection monitor");
 	ros::spin();
 	return 0;
 }

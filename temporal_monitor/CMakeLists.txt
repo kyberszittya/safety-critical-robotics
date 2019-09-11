@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   autoware_msgs
   monitoring_msgs
+  planner_msgs
   roscpp
   rospy
   std_msgs

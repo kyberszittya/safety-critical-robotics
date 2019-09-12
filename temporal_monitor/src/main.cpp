@@ -34,6 +34,13 @@ public:
 	Eigen::Quaterniond ori;
 };
 
+struct ObstacleInformation
+{
+	double lateral_distance;
+	double longitudinal_distance;
+	unsigned int obstacle_idx;
+};
+
 const double MAX_LATERAL_DISTANCE = 1.4;
 const double MAX_LATERAL_DISTANCE_SQR = MAX_LATERAL_DISTANCE * MAX_LATERAL_DISTANCE;
 const double MAX_LOOKAHEAD_DISTANCE = 16.8;
@@ -83,12 +90,11 @@ public:
 
 	void distanceBetweenPointAndWaypoint(const geometry_msgs::PointStamped& point, const autoware_msgs::Lane& lane,
 			const int& closest_waypoint_id,
-			double& longitudinal_distance,
-			double& lateral_distance,
+			ObstacleInformation& distance_information,
 			unsigned int& lane_id)
 	{
-		lateral_distance = std::numeric_limits<double>::infinity();
-		longitudinal_distance = std::numeric_limits<double>::infinity();
+		distance_information.lateral_distance = std::numeric_limits<double>::infinity();
+		distance_information.longitudinal_distance = std::numeric_limits<double>::infinity();
 		double lookahead_distance = 0.0;
 		try
 		{
@@ -117,10 +123,13 @@ public:
 				//lookahead_distance += d_dist;
 				if (d_dist < 2.0)
 				{
-					lateral_distance = waypoint_transformed.pose.position.y - point_transformed.point.y;
-					longitudinal_distance = _d_obsx;
-					ROS_INFO_STREAM("Obstacle detected near to the waypoint" << lateral_distance << '\t' <<
-							longitudinal_distance << '\t' << _d_obsy);
+					distance_information.lateral_distance = waypoint_transformed.pose.position.y - point_transformed.point.y;
+					distance_information.longitudinal_distance = _d_obsx;
+					distance_information.obstacle_idx = i;
+
+					ROS_INFO_STREAM("Obstacle detected near to the waypoint"
+							<< distance_information.lateral_distance << '\t' <<
+							distance_information.longitudinal_distance << '\t' << _d_obsy);
 					last_detected_object = point_transformed;
 					lane_id = i;
 					break;
@@ -175,15 +184,13 @@ public:
 	{
 		for (const auto& cluster: msg->clusters)
 		{
-			double lateral_distance;
-			double longitudinal_distance;
+			ObstacleInformation dist_information;
 			unsigned int lane_id;
 			ego_state_subscriber->distanceBetweenPointAndWaypoint(cluster.centroid_point,
 					msg_current_base_lane, closest_waypoint_id,
-					longitudinal_distance,
-					lateral_distance,
+					dist_information,
 					lane_id);
-			if (longitudinal_distance < MAX_LOOKAHEAD_DISTANCE && lateral_distance < MAX_LATERAL_DISTANCE)
+			if (dist_information.longitudinal_distance < MAX_LOOKAHEAD_DISTANCE && dist_information.lateral_distance < MAX_LATERAL_DISTANCE)
 			{
 				auto event_time = ros::Time::now();
 				monitoring_msgs::MonitorFeedback event;
@@ -191,6 +198,7 @@ public:
 				planner_msgs::LocalPlannerObjectDetection localplanner_msg;
 				localplanner_msg.avoidance_start_index = closest_waypoint_id;
 				localplanner_msg.avoidance_end_index   = closest_waypoint_id + AVOIDANCE_TRAJECTORY_POINT_LENGTH;
+				localplanner_msg.obstacle_index = dist_information.obstacle_idx;
 				localplanner_msg.header.stamp = event_time;
 				localplanner_msg.event.signal_id = "LANE_OBJECT_DETECTED";
 				localplanner_msg.event.header.stamp = event_time;
@@ -215,7 +223,8 @@ public:
 				object_marker.pose.position.y = ego_state_subscriber->last_detected_object.point.y;
 				object_marker.pose.position.z = ego_state_subscriber->last_detected_object.point.z;
 				pub_detected_object_marker.publish(object_marker);
-				ROS_INFO_STREAM("Obstacle detected at: " << lateral_distance << '\t' << longitudinal_distance << '\n');
+				ROS_INFO_STREAM("Obstacle detected at: " << dist_information.lateral_distance
+						<< '\t' << dist_information.longitudinal_distance << '\n');
 
 			}
 		}

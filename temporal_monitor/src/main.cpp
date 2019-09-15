@@ -208,7 +208,7 @@ public:
 				pub_local_planner_object_detection.publish(localplanner_msg);
 				visualization_msgs::Marker object_marker;
 				object_marker.header.frame_id = "base_link";
-				object_marker.header.stamp = ros::Time::now();
+				object_marker.header.stamp = event_time;
 
 
 				object_marker.color.a = 1.0;
